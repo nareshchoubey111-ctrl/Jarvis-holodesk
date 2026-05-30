@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>JARVIS — Personal HoloDesk</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;900&family=Share+Tech+Mono&display=swap');
+
+:root {
+  --c: #00e5ff;
+  --c2: #00ffcc;
+  --gold: #ffc400;
+  --red: #ff1744;
+  --bg: #010d14;
+  --dim: rgba(0,229,255,0.06);
+  --border: rgba(0,229,255,0.25);
+  --font: 'Share Tech Mono', monospace;
+  --head: 'Orbitron', sans-serif;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:var(--font);color:var(--c);}
+
+/* ── SCANLINES ── */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(180deg,transparent 0,transparent 3px,rgba(0,229,255,.018) 3px,rgba(0,229,255,.018) 4px);
+}
+
+/* ══════════════════════════════
+   BOOT / SPLASH SCREEN
+══════════════════════════════ */
+#boot{
+  position:fixed;inset:0;z-index:2000;
+  background:var(--bg);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:20px;
+  transition:opacity .8s;
+}
+#boot.gone{opacity:0;pointer-events:none;}
+.arc-reactor{
+  width:90px;height:90px;position:relative;
+  animation:reactorSpin 4s linear infinite;
+}
+.arc-reactor svg{width:100%;height:100%;}
+@keyframes reactorSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+#boot h1{font-family:var(--head);font-size:22px;letter-spacing:6px;color:var(--gold);}
+#boot p{font-size:9px;letter-spacing:3px;color:rgba(0,229,255,.5);text-align:center;max-width:260px;line-height:1.8;}
+.boot-bar{width:200px;height:2px;background:rgba(0,229,255,.15);border-radius:2px;overflow:hidden;}
+.boot-fill{height:100%;background:linear-gradient(90deg,var(--c),var(--gold));width:0;animation:bootFill 2.2s ease forwards;}
+@keyframes bootFill{to{width:100%}}
+#bootStatus{font-size:8px;letter-spacing:2px;color:rgba(0,229,255,.4);min-height:14px;}
+
+/* ══════════════════════════════
+   MAIN LAYOUT
+══════════════════════════════ */
+#app{position:fixed;inset:0;display:flex;flex-direction:column;}
+
+/* ── TOP HUD ── */
+#hud{
+  flex-shrink:0;height:48px;
+  background:linear-gradient(180deg,rgba(0,229,255,.1) 0%,transparent 100%);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 14px;gap:10px;
+  font-family:var(--head);font-size:9px;letter-spacing:2px;z-index:100;
+}
+#hud .logo{color:var(--gold);font-weight:900;font-size:14px;letter-spacing:4px;}
+#hud .pipe{width:1px;height:20px;background:var(--border);}
+.hud-metric{display:flex;flex-direction:column;gap:1px;line-height:1.2;}
+.hud-metric .val{color:var(--c2);font-size:10px;}
+.hud-metric .lbl{font-size:7px;opacity:.45;}
+#hud .spacer{flex:1;}
+.sys-dot{width:5px;height:5px;border-radius:50%;background:var(--c2);animation:dotBlink 1.8s ease infinite;}
+.sys-dot.red{background:var(--red);animation-delay:.6s;}
+.sys-dot.gold{background:var(--gold);animation-delay:1.2s;}
+@keyframes dotBlink{0%,100%{opacity:1}50%{opacity:.15}}
+
+/* ── SCENE (cameras + objects layer) ── */
+#scene{flex:1;position:relative;overflow:hidden;}
+
+/* REAR CAMERA — full background */
+#rearVideo{
+  position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;
+  filter:brightness(.55) saturate(1.4) hue-rotate(170deg);
+  z-index:0;
+}
+
+/* Grid overlay on rear feed */
+.holo-grid{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(0,229,255,.07) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,229,255,.07) 1px,transparent 1px);
+  background-size:44px 44px;
+}
+
+/* Vignette */
+.vignette{
+  position:absolute;inset:0;z-index:2;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 50%,transparent 40%,rgba(1,13,20,.7) 100%);
+}
+
+/* Scan line that sweeps */
+.sweep{
+  position:absolute;left:0;right:0;height:2px;z-index:3;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(0,229,255,.5),transparent);
+  animation:sweepDown 4s linear infinite;
+}
+@keyframes sweepDown{from{top:-2px}to{top:100%}}
+
+/* FRONT CAMERA PIP — gesture cam */
+#frontWrap{
+  position:absolute;z-index:20;
+  bottom:12px;right:12px;
+  width:110px;height:150px;
+  border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;
+  box-shadow:0 0 20px rgba(0,229,255,.2);
+  transition:all .3s;
+}
+#frontWrap.expanded{width:260px;height:360px;bottom:170px;right:12px;}
+#frontVideo{
+  width:100%;height:100%;object-fit:cover;
+  transform:scaleX(-1);
+  filter:brightness(.7) saturate(1.2) hue-rotate(180deg);
+}
+#frontLabel{
+  position:absolute;bottom:0;left:0;right:0;
+  font-family:var(--head);font-size:7px;letter-spacing:2px;
+  padding:4px 6px;background:rgba(0,10,20,.7);
+  border-top:1px solid var(--border);color:var(--c2);
+  display:flex;align-items:center;gap:5px;
+}
+.pip-dot{width:5px;height:5px;border-radius:50%;background:var(--c2);animation:dotBlink 1s infinite;}
+
+/* HAND SKELETON overlay on front cam */
+#handCanvas{
+  position:absolute;inset:0;width:100%;height:100%;
+  pointer-events:none;z-index:5;
+}
+
+/* EXPAND BTN */
+#expandFront{
+  position:absolute;top:5px;right:5px;z-index:10;
+  background:rgba(0,229,255,.1);border:1px solid var(--border);
+  border-radius:4px;padding:3px 5px;font-size:8px;color:var(--c);
+  cursor:pointer;font-family:var(--head);letter-spacing:1px;
+}
+
+/* Objects layer */
+#objectsLayer{position:absolute;inset:0;z-index:10;pointer-events:none;}
+
+/* ── HOLOGRAPHIC OBJECT ── */
+.hobj{
+  position:absolute;pointer-events:auto;
+  cursor:grab;user-select:none;
+  transform-origin:center;
+}
+.hobj:active{cursor:grabbing;}
+.hobj-inner{
+  border:1px solid var(--border);
+  border-radius:6px;padding:8px;
+  background:var(--dim);
+  backdrop-filter:blur(6px);
+  position:relative;
+  animation:hobjFloat 5s ease-in-out infinite;
+}
+@keyframes hobjFloat{
+  0%,100%{transform:translateY(0) rotateY(0deg)}
+  50%{transform:translateY(-10px) rotateY(8deg)}
+}
+.hobj.selected .hobj-inner{
+  border-color:var(--c2);
+  box-shadow:0 0 0 1px var(--c2),0 0 20px rgba(0,255,200,.3),inset 0 0 20px rgba(0,255,200,.06);
+  animation:hobjFloat 5s ease-in-out infinite,selectedPulse 1.2s ease infinite alternate;
+}
+@keyframes selectedPulse{from{box-shadow:0 0 0 1px var(--c2),0 0 15px rgba(0,255,200,.3)}to{box-shadow:0 0 0 2px var(--c2),0 0 35px rgba(0,255,200,.5)}}
+.corner{position:absolute;width:8px;height:8px;border-color:var(--c);border-style:solid;}
+.corner.tl{top:-1px;left:-1px;border-width:1.5px 0 0 1.5px;}
+.corner.tr{top:-1px;right:-1px;border-width:1.5px 1.5px 0 0;}
+.corner.bl{bottom:-1px;left:-1px;border-width:0 0 1.5px 1.5px;}
+.corner.br{bottom:-1px;right:-1px;border-width:0 1.5px 1.5px 0;}
+.hobj.selected .corner{border-color:var(--c2);}
+.obj-name{
+  font-family:var(--head);font-size:7px;letter-spacing:2px;
+  text-align:center;margin-top:5px;opacity:.7;
+}
+
+/* ── GESTURE HUD indicator ── */
+#gestureHud{
+  position:absolute;top:8px;left:50%;transform:translateX(-50%);
+  z-index:50;pointer-events:none;
+  font-family:var(--head);font-size:9px;letter-spacing:3px;
+  color:var(--c2);
+  background:rgba(0,10,20,.6);
+  border:1px solid rgba(0,229,255,.2);
+  border-radius:20px;padding:5px 14px;
+  opacity:0;transition:opacity .3s;
+  white-space:nowrap;
+}
+#gestureHud.show{opacity:1;}
+
+/* ── SELECTED OBJECT QUICK ACTIONS ── */
+#quickActions{
+  position:absolute;z-index:60;
+  display:none;flex-direction:column;gap:6px;
+}
+#quickActions.visible{display:flex;}
+.qa-btn{
+  font-family:var(--head);font-size:8px;letter-spacing:1px;
+  padding:7px 12px;border-radius:6px;cursor:pointer;
+  background:rgba(0,10,20,.85);
+  border:1px solid var(--border);
+  color:var(--c);transition:.2s;white-space:nowrap;
+}
+.qa-btn:active{background:rgba(0,229,255,.18);}
+.qa-btn.danger{border-color:rgba(255,23,68,.4);color:var(--red);}
+
+/* ── RIPPLE ── */
+.ripple{
+  position:absolute;pointer-events:none;z-index:200;
+  border-radius:50%;border:1.5px solid var(--c2);
+  transform:translate(-50%,-50%);
+  animation:rippleOut .7s ease-out forwards;
+}
+@keyframes rippleOut{from{width:0;height:0;opacity:1}to{width:90px;height:90px;opacity:0}}
+
+/* ── GESTURE TRAIL ── */
+.gtrail{
+  position:absolute;width:6px;height:6px;border-radius:50%;
+  background:var(--c2);pointer-events:none;z-index:300;
+  transform:translate(-50%,-50%);
+  animation:trailFade .5s ease forwards;
+}
+@keyframes trailFade{to{opacity:0;width:0;height:0}}
+
+/* ═══════════════════════════
+   BOTTOM DOCK
+═══════════════════════════ */
+#dock{
+  flex-shrink:0;
+  background:linear-gradient(0deg,rgba(0,10,20,.98),rgba(0,10,20,.75));
+  border-top:1px solid var(--border);
+  padding:10px 10px 20px;z-index:100;
+}
+.dock-row{display:flex;gap:8px;justify-content:center;margin-bottom:8px;}
+.dock-btn{
+  flex:1;max-width:80px;
+  background:var(--dim);border:1px solid var(--border);
+  border-radius:10px;padding:8px 4px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  cursor:pointer;transition:.15s;
+  font-family:var(--head);font-size:7px;letter-spacing:1px;color:var(--c);
+}
+.dock-btn:active,.dock-btn.on{background:rgba(0,229,255,.16);border-color:var(--c2);}
+.dock-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;}
+.dock-btn.gold{color:var(--gold);border-color:rgba(255,196,0,.3);}
+.dock-btn.danger{color:var(--red);border-color:rgba(255,23,68,.3);}
+
+/* Mode bar */
+.mode-bar{display:flex;gap:6px;justify-content:center;}
+.mode-btn{
+  flex:1;max-width:90px;
+  background:var(--dim);border:1px solid rgba(0,229,255,.15);
+  border-radius:6px;padding:5px 4px;text-align:center;
+  font-family:var(--head);font-size:7px;letter-spacing:1px;
+  color:rgba(0,229,255,.5);cursor:pointer;transition:.15s;
+}
+.mode-btn.active{background:rgba(0,229,255,.14);border-color:var(--c2);color:var(--c2);}
+
+/* ═══════════════════════════
+   MODALS
+═══════════════════════════ */
+.modal{
+  position:fixed;inset:0;z-index:1000;
+  background:rgba(1,13,20,.95);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  padding:20px;
+}
+.modal.open{display:flex;}
+.modal h2{font-family:var(--head);font-size:13px;letter-spacing:4px;color:var(--gold);}
+.modal-option{
+  width:100%;max-width:280px;
+  background:var(--dim);border:1px solid var(--border);
+  border-radius:12px;padding:14px 16px;
+  display:flex;align-items:center;gap:14px;cursor:pointer;transition:.15s;
+}
+.modal-option:active{background:rgba(0,229,255,.15);}
+.modal-option svg{width:28px;height:28px;flex-shrink:0;}
+.modal-option .mo-title{font-family:var(--head);font-size:10px;letter-spacing:1px;}
+.modal-option .mo-sub{font-size:8px;opacity:.45;margin-top:3px;letter-spacing:1px;}
+.modal-cancel{font-family:var(--head);font-size:8px;letter-spacing:2px;color:rgba(0,229,255,.35);cursor:pointer;margin-top:6px;}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;top:58px;left:50%;transform:translateX(-50%);
+  background:rgba(0,15,25,.9);border:1px solid var(--border);
+  border-radius:20px;padding:7px 16px;
+  font-family:var(--head);font-size:8px;letter-spacing:2px;color:var(--c2);
+  z-index:800;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap;
+}
+#toast.show{opacity:1;}
+
+/* ── HAND GESTURE INDICATOR RING ── */
+#gestureRing{
+  position:absolute;pointer-events:none;z-index:400;
+  border-radius:50%;border:1.5px solid var(--c2);
+  opacity:0;transition:opacity .2s;
+  transform:translate(-50%,-50%);
+}
+#gestureRing.show{opacity:.8;}
+</style>
+</head>
+<body>
+
+<!-- ══ BOOT SCREEN ══ -->
+<div id="boot">
+  <div class="arc-reactor">
+    <svg viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(0,229,255,.2)" stroke-width="2"/>
+      <circle cx="50" cy="50" r="28" fill="none" stroke="rgba(0,229,255,.5)" stroke-width="1.5"/>
+      <circle cx="50" cy="50" r="14" fill="rgba(0,229,255,.1)" stroke="#00e5ff" stroke-width="2"/>
+      <circle cx="50" cy="50" r="5" fill="#00ffcc"/>
+      <line x1="50" y1="10" x2="50" y2="22" stroke="#00e5ff" stroke-width="2"/>
+      <line x1="50" y1="78" x2="50" y2="90" stroke="#00e5ff" stroke-width="2"/>
+      <line x1="10" y1="50" x2="22" y2="50" stroke="#00e5ff" stroke-width="2"/>
+      <line x1="78" y1="50" x2="90" y2="50" stroke="#00e5ff" stroke-width="2"/>
+      <line x1="22" y1="22" x2="30" y2="30" stroke="rgba(0,229,255,.4)" stroke-width="1.5"/>
+      <line x1="70" y1="70" x2="78" y2="78" stroke="rgba(0,229,255,.4)" stroke-width="1.5"/>
+      <line x1="78" y1="22" x2="70" y2="30" stroke="rgba(0,229,255,.4)" stroke-width="1.5"/>
+      <line x1="22" y1="78" x2="30" y2="70" stroke="rgba(0,229,255,.4)" stroke-width="1.5"/>
+    </svg>
+  </div>
+  <h1>J.A.R.V.I.S</h1>
+  <p>PERSONAL HOLOGRAPHIC INTERFACE<br>DUAL CAMERA SYSTEM INITIALIZING</p>
+  <div class="boot-bar"><div class="boot-fill"></div></div>
+  <div id="bootStatus">LOADING VISION MODULES...</div>
+</div>
+
+<!-- ══ MAIN APP ══ -->
+<div id="app">
+
+  <!-- TOP HUD -->
+  <div id="hud">
+    <div class="logo">JARVIS</div>
+    <div class="pipe"></div>
+    <div class="hud-metric"><div class="val" id="objCount">0</div><div class="lbl">OBJECTS</div></div>
+    <div class="pipe"></div>
+    <div class="hud-metric"><div class="val" id="modeDisp">MOVE</div><div class="lbl">MODE</div></div>
+    <div class="pipe"></div>
+    <div class="hud-metric"><div class="val" id="gestDisp">NONE</div><div class="lbl">GESTURE</div></div>
+    <div class="spacer"></div>
+    <div class="sys-dot"></div>
+    <div class="sys-dot gold"></div>
+    <div class="sys-dot red"></div>
+  </div>
+
+  <!-- SCENE -->
+  <div id="scene">
+    <!-- Rear camera full bg -->
+    <video id="rearVideo" autoplay playsinline muted></video>
+    <div class="holo-grid"></div>
+    <div class="vignette"></div>
+    <div class="sweep"></div>
+
+    <!-- Objects -->
+    <div id="objectsLayer"></div>
+
+    <!-- Gesture indicator ring -->
+    <div id="gestureRing" style="width:60px;height:60px;"></div>
+
+    <!-- Gesture HUD label -->
+    <div id="gestureHud"></div>
+
+    <!-- Quick action panel -->
+    <div id="quickActions">
+      <div class="qa-btn" onclick="scaleObj(1.25)">⊕ SCALE UP</div>
+      <div class="qa-btn" onclick="scaleObj(.8)">⊖ SCALE DOWN</div>
+      <div class="qa-btn" onclick="rotateObj(45)">↻ ROTATE 45°</div>
+      <div class="qa-btn" onclick="cloneObj()">⊞ CLONE</div>
+      <div class="qa-btn danger" onclick="deleteObj()">✕ DELETE</div>
+    </div>
+
+    <!-- Front camera PIP -->
+    <div id="frontWrap">
+      <video id="frontVideo" autoplay playsinline muted></video>
+      <canvas id="handCanvas"></canvas>
+      <div id="frontLabel"><div class="pip-dot"></div>GESTURE CAM</div>
+      <div id="expandFront" onclick="toggleFrontExpand()">⤢</div>
+    </div>
+  </div>
+
+  <!-- DOCK -->
+  <div id="dock">
+    <div class="dock-row">
+      <div class="dock-btn gold" onclick="openModal('importModal')">
+        <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        IMPORT
+      </div>
+      <div class="dock-btn" onclick="spawn3D()">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        3D OBJ
+      </div>
+      <div class="dock-btn" onclick="spawn2D()">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        2D OBJ
+      </div>
+      <div class="dock-btn" onclick="spawnText()">
+        <svg viewBox="0 0 24 24"><path d="M17 6.1H3M21 12.1H3M15.1 18H3"/></svg>
+        TEXT
+      </div>
+      <div class="dock-btn danger" onclick="clearAll()">
+        <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6M9 6V4h6v2"/></svg>
+        CLEAR
+      </div>
+    </div>
+    <div class="mode-bar">
+      <div class="mode-btn active" id="mMOVE" onclick="setMode('MOVE')">✥ MOVE</div>
+      <div class="mode-btn" id="mROTATE" onclick="setMode('ROTATE')">↻ ROTATE</div>
+      <div class="mode-btn" id="mSCALE" onclick="setMode('SCALE')">⤢ SCALE</div>
+      <div class="mode-btn" id="mINSPECT" onclick="setMode('INSPECT')">◎ INSPECT</div>
+    </div>
+  </div>
+</div>
+
+<!-- IMPORT MODAL -->
+<div class="modal" id="importModal">
+  <h2>IMPORT ASSET</h2>
+  <label class="modal-option">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#ffc400" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    <div><div class="mo-title">3D OBJECT</div><div class="mo-sub">.OBJ / .GLTF / .FBX</div></div>
+    <input type="file" accept=".obj,.gltf,.glb,.fbx" style="display:none" onchange="importFile(event,'3d')">
+  </label>
+  <label class="modal-option">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#00e5ff" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+    <div><div class="mo-title">IMAGE / 2D</div><div class="mo-sub">.PNG / .JPG / .SVG / .GIF</div></div>
+    <input type="file" accept="image/*" style="display:none" onchange="importFile(event,'img')">
+  </label>
+  <label class="modal-option">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#00ffcc" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+    <div><div class="mo-title">DATA / TEXT</div><div class="mo-sub">.TXT / .JSON / .CSV</div></div>
+    <input type="file" accept=".txt,.json,.csv" style="display:none" onchange="importFile(event,'data')">
+  </label>
+  <div class="modal-cancel" onclick="closeModal('importModal')">[ CANCEL ]</div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ╔══════════════════════════════════════════════════════╗
+// ║            JARVIS HOLODESK — ENGINE v2              ║
+// ╚══════════════════════════════════════════════════════╝
+
+const S = {
+  objects: [],
+  selected: null,
+  mode: 'MOVE',
+  nextId: 1,
+  lastTap: 0,
+  frontExpanded: false,
+  rearActive: false,
+  frontActive: false,
+  dragId: null,
+  dragOx: 0, dragOy: 0,
+  pinchDist: 0,
+  gestureTimeout: null,
+};
+
+// ─── BOOT SEQUENCE ───────────────────────────────────────
+const bootMessages = [
+  'LOADING VISION MODULES...','CALIBRATING SENSOR ARRAY...',
+  'HAND TRACKING ONLINE...','DUAL CAMERA LINK...','READY.'
+];
+let bm=0;
+const bootInterval = setInterval(()=>{
+  bm++;
+  if(bm<bootMessages.length) document.getElementById('bootStatus').textContent=bootMessages[bm];
+  if(bm>=bootMessages.length-1){ clearInterval(bootInterval); setTimeout(launchApp,600); }
+},440);
+
+function launchApp(){
+  document.getElementById('boot').classList.add('gone');
+  initCameras();
+  spawnDemoObjects();
+}
+
+// ─── DUAL CAMERA ─────────────────────────────────────────
+async function initCameras(){
+  // REAR cam (environment — scene background)
+  try {
+    const rStream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720}},
+      audio:false
+    });
+    const rv = document.getElementById('rearVideo');
+    rv.srcObject = rStream;
+    S.rearActive = true;
+    toast('REAR CAMERA ONLINE');
+  } catch(e){ toast('REAR CAM: DEMO MODE'); }
+
+  // FRONT cam (user-facing — gesture detection)
+  await new Promise(r=>setTimeout(r,400));
+  try {
+    const fStream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'user'}, width:{ideal:640}, height:{ideal:480}},
+      audio:false
+    });
+    const fv = document.getElementById('frontVideo');
+    fv.srcObject = fStream;
+    S.frontActive = true;
+    toast('FRONT CAMERA ONLINE');
+    startHandTracking();
+  } catch(e){ toast('FRONT CAM: DEMO MODE'); startHandTracking(); }
+}
+
+// ─── HAND TRACKING (MediaPipe Hands via CDN) ─────────────
+let handModel=null, handCanvas=null, handCtx=null;
+let gestureActive=false, lastGestureTime=0;
+
+function startHandTracking(){
+  handCanvas = document.getElementById('handCanvas');
+  handCtx = handCanvas.getContext('2d');
+  resizeHandCanvas();
+
+  // Load MediaPipe Hands
+  const script1 = document.createElement('script');
+  script1.src='https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
+  script1.onload=()=>{
+    const script2=document.createElement('script');
+    script2.src='https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+    script2.onload=initMediaPipeHands;
+    document.head.appendChild(script2);
+  };
+  document.head.appendChild(script1);
+}
+
+function initMediaPipeHands(){
+  const fv = document.getElementById('frontVideo');
+  try {
+    const hands = new Hands({locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+    hands.setOptions({maxNumHands:1, modelComplexity:0, minDetectionConfidence:.7, minTrackingConfidence:.6});
+    hands.onResults(onHandResults);
+
+    if(typeof Camera!=='undefined'){
+      const cam = new Camera(fv,{
+        onFrame:async()=>{ await hands.send({image:fv}); },
+        width:640, height:480
+      });
+      cam.start();
+    }
+    toast('HAND TRACKING ACTIVE');
+  } catch(e){ toast('HAND MODEL: FALLBACK MODE'); }
+}
+
+const FINGERS = [4,8,12,16,20];
+function onHandResults(results){
+  const w=handCanvas.width, h=handCanvas.height;
+  handCtx.clearRect(0,0,w,h);
+  if(!results.multiHandLandmarks?.length) return;
+
+  const lms = results.multiHandLandmarks[0];
+  drawHandSkeleton(lms, w, h);
+
+  const gesture = detectGesture(lms);
+  if(gesture){ handleGesture(gesture, lms, w, h); }
+}
+
+function drawHandSkeleton(lms, w, h){
+  const connections=[
+    [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+    [0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],
+    [0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]
+  ];
+  handCtx.strokeStyle='rgba(0,255,200,.6)'; handCtx.lineWidth=1;
+  connections.forEach(([a,b])=>{
+    handCtx.beginPath();
+    handCtx.moveTo(lms[a].x*w, lms[a].y*h);
+    handCtx.lineTo(lms[b].x*w, lms[b].y*h);
+    handCtx.stroke();
+  });
+  lms.forEach(lm=>{
+    handCtx.beginPath();
+    handCtx.arc(lm.x*w, lm.y*h, 2.5, 0, 2*Math.PI);
+    handCtx.fillStyle='rgba(0,229,255,.9)'; handCtx.fill();
+  });
+}
+
+function detectGesture(lms){
+  const tips=[4,8,12,16,20];
+  const bases=[2,5,9,13,17];
+  const fingerUp = tips.map((t,i)=>{
+    if(i===0) return lms[t].x < lms[bases[i]].x; // thumb
+    return lms[t].y < lms[bases[i]].y;
+  });
+  const up = fingerUp.filter(Boolean).length;
+
+  if(up>=4) return 'OPEN_PALM';
+  if(fingerUp[1]&&!fingerUp[2]&&!fingerUp[3]&&!fingerUp[4]) return 'POINT';
+  if(fingerUp[1]&&fingerUp[2]&&!fingerUp[3]&&!fingerUp[4]) return 'PEACE';
+  if(!fingerUp[0]&&!fingerUp[1]&&!fingerUp[2]&&!fingerUp[3]&&!fingerUp[4]) return 'FIST';
+  if(fingerUp[0]&&!fingerUp[1]&&!fingerUp[2]&&!fingerUp[3]&&!fingerUp[4]) return 'THUMBS_UP';
+  if(fingerUp[1]&&fingerUp[2]&&fingerUp[3]&&!fingerUp[4]) return 'THREE';
+  return null;
+}
+
+const gestureActions = {
+  OPEN_PALM: { label:'OPEN PALM — DESELECT', fn: ()=>deselect() },
+  POINT:     { label:'POINT — SELECT MODE', fn: ()=>setMode('INSPECT') },
+  PEACE:     { label:'PEACE — MOVE MODE', fn: ()=>setMode('MOVE') },
+  FIST:      { label:'FIST — GRAB / LOCK', fn: ()=>toast('OBJECT LOCKED') },
+  THUMBS_UP: { label:'THUMBS UP — SCALE UP', fn: ()=>{ if(S.selected) scaleObj(1.15); } },
+  THREE:     { label:'THREE FINGERS — ROTATE', fn: ()=>{ if(S.selected) rotateObj(30); } },
+};
+
+function handleGesture(g, lms, w, h){
+  const now=Date.now();
+  if(now-lastGestureTime < 900) return;
+  lastGestureTime=now;
+
+  document.getElementById('gestDisp').textContent=g;
+  const ga = gestureActions[g];
+  if(ga){
+    showGestureHud(ga.label);
+    ga.fn();
+  }
+
+  // show ring at index finger tip position scaled to viewport
+  const scene = document.getElementById('scene').getBoundingClientRect();
+  const fw = document.getElementById('frontWrap');
+  const fwr = fw.getBoundingClientRect();
+  // map from front cam coords into scene coords
+  const nx = scene.width*(1-(lms[8].x*(fwr.width/scene.width)+fwr.left/scene.width));
+  const ny = (lms[8].y*fwr.height)+fwr.top - scene.top;
+  showGestureRing(nx+scene.left, ny);
+}
+
+function showGestureHud(msg){
+  const el=document.getElementById('gestureHud');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(S.gestureTimeout);
+  S.gestureTimeout=setTimeout(()=>el.classList.remove('show'),2000);
+}
+
+function showGestureRing(x,y){
+  const r=document.getElementById('gestureRing');
+  r.style.left=x+'px'; r.style.top=y+'px';
+  r.classList.add('show');
+  setTimeout(()=>r.classList.remove('show'),800);
+}
+
+function resizeHandCanvas(){
+  const fw=document.getElementById('frontWrap');
+  handCanvas.width=fw.offsetWidth;
+  handCanvas.height=fw.offsetHeight;
+}
+
+// ─── MODE ────────────────────────────────────────────────
+function setMode(m){
+  S.mode=m;
+  document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+  const el=document.getElementById('m'+m); if(el) el.classList.add('active');
+  document.getElementById('modeDisp').textContent=m;
+  toast('MODE: '+m);
+}
+
+// ─── OBJECT SYSTEM ───────────────────────────────────────
+const S3 = ['CUBE','SPHERE','PYRAMID','TORUS','HELIX','DIAMOND'];
+const S2 = ['CIRCLE','HEXAGON','TRIANGLE','STAR','CROSS'];
+const COLS = ['rgba(0,229,255,1)','rgba(0,255,200,1)','rgba(255,196,0,1)','rgba(140,80,255,1)','rgba(0,255,130,1)'];
+
+function newObj(type, name, x, y, size=72, is2d=false){
+  const scene = document.getElementById('scene').getBoundingClientRect();
+  return {
+    id:S.nextId++, type, name, is2d,
+    x: x??40+Math.random()*(scene.width-120),
+    y: y??60+Math.random()*(scene.height-140),
+    scale:1, rotation:0, size,
+    color:COLS[Math.floor(Math.random()*COLS.length)]
+  };
+}
+
+function spawn3D(type, x, y){
+  const t=type||S3[Math.floor(Math.random()*S3.length)];
+  const obj=newObj(t,t,x,y);
+  S.objects.push(obj);
+  buildObjEl(obj); updateCount(); toast('SPAWNED: '+t);
+}
+function spawn2D(type, x, y){
+  const t=type||S2[Math.floor(Math.random()*S2.length)];
+  const obj=newObj(t,t,x,y,68,true);
+  S.objects.push(obj);
+  buildObjEl(obj); updateCount(); toast('SPAWNED: '+t);
+}
+function spawnText(txt){
+  const text=txt||'HELLO JARVIS';
+  const obj=newObj('TEXT',text,null,null,80,true);
+  obj.text=text;
+  S.objects.push(obj);
+  buildObjEl(obj); updateCount(); toast('TEXT SPAWNED');
+}
+
+function buildObjEl(obj){
+  const el=document.createElement('div');
+  el.className='hobj'; el.id='hobj_'+obj.id;
+  el.style.cssText=`left:${obj.x}px;top:${obj.y}px;z-index:${obj.id}`;
+
+  const inner=document.createElement('div');
+  inner.className='hobj-inner';
+  inner.style.borderColor=obj.color.replace('1)','0.35)');
+
+  const c=document.createElement('canvas');
+  c.width=c.height=obj.size;
+  drawShapeCanvas(c.getContext('2d'),obj);
+  inner.appendChild(c);
+
+  const lbl=document.createElement('div');
+  lbl.className='obj-name';
+  lbl.style.color=obj.color;
+  lbl.textContent=obj.name.slice(0,12);
+  inner.appendChild(lbl);
+
+  ['tl','tr','bl','br'].forEach(p=>{
+    const d=document.createElement('div');
+    d.className='corner '+p;
+    d.style.borderColor=obj.color.replace('1)','0.5)');
+    inner.appendChild(d);
+  });
+
+  el.appendChild(inner);
+  document.getElementById('objectsLayer').appendChild(el);
+
+  // animate in
+  el.style.opacity='0'; el.style.transform='scale(.3) translateY(20px)';
+  el.style.transition='all .45s cubic-bezier(.34,1.56,.64,1)';
+  requestAnimationFrame(()=>{ el.style.opacity='1'; el.style.transform='scale(1) translateY(0)'; });
+
+  // events
+  let tapTime=0;
+  function onPointerDown(e){
+    e.stopPropagation();
+    const now=Date.now();
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    if(now-tapTime<350){ selectObj(obj.id); spawnRipple(cx,cy,true); tapTime=0; return; }
+    tapTime=now;
+    if(S.mode==='MOVE'||S.mode==='INSPECT') startDrag(obj.id, cx, cy);
+  }
+  el.addEventListener('touchstart',onPointerDown,{passive:false});
+  el.addEventListener('mousedown',onPointerDown);
+}
+
+function drawShapeCanvas(ctx, obj){
+  const s=obj.size, h=s/2;
+  ctx.strokeStyle=obj.color; ctx.lineWidth=1.5;
+  ctx.fillStyle=obj.color.replace('1)','0.1)');
+
+  if(obj.text){
+    ctx.fillStyle=obj.color; ctx.font=`bold 11px 'Orbitron',monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(obj.text.slice(0,8), h, h);
+    return;
+  }
+
+  if(obj.is2d){
+    switch(obj.type){
+      case 'CIRCLE': ctx.beginPath();ctx.arc(h,h,h-6,0,2*Math.PI);ctx.fill();ctx.stroke();break;
+      case 'HEXAGON': poly(ctx,h,h,6,h-6);break;
+      case 'TRIANGLE': ctx.beginPath();ctx.moveTo(h,6);ctx.lineTo(s-6,s-6);ctx.lineTo(6,s-6);ctx.closePath();ctx.fill();ctx.stroke();break;
+      case 'STAR': star(ctx,h,h,5,h-6,(h-6)/2.2);break;
+      case 'CROSS':
+        ctx.fillRect(h-6,10,12,s-20); ctx.fillRect(10,h-6,s-20,12);
+        ctx.strokeRect(h-6,10,12,s-20); break;
+    }
+  } else {
+    switch(obj.type){
+      case 'CUBE':
+        ctx.strokeRect(10,18,s-24,s-30);ctx.strokeRect(18,10,s-24,s-30);
+        [[10,18,18,10],[s-14,18,s-6,10],[10,s-12,18,s-20],[s-14,s-12,s-6,s-20]].forEach(([x1,y1,x2,y2])=>{ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();});break;
+      case 'SPHERE':
+        ctx.beginPath();ctx.arc(h,h,h-8,0,2*Math.PI);ctx.stroke();
+        ctx.beginPath();ctx.ellipse(h,h,h-8,(h-8)/3,0,0,2*Math.PI);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(8,h);ctx.lineTo(s-8,h);ctx.stroke();break;
+      case 'PYRAMID':
+        ctx.beginPath();ctx.moveTo(h,6);ctx.lineTo(s-8,s-8);ctx.lineTo(8,s-8);ctx.closePath();ctx.stroke();
+        ctx.beginPath();ctx.moveTo(h,6);ctx.lineTo(h+10,s-14);ctx.stroke();break;
+      case 'TORUS':
+        ctx.beginPath();ctx.arc(h,h,h-8,0,2*Math.PI);ctx.stroke();
+        ctx.beginPath();ctx.arc(h,h,h-18,0,2*Math.PI);ctx.stroke();break;
+      case 'HELIX':
+        for(let i=0;i<14;i++){const y=6+i*(s-12)/14;const x=h+Math.sin(i*.8)*14;ctx.beginPath();ctx.arc(x,y,2.5,0,2*Math.PI);ctx.fill();}break;
+      case 'DIAMOND':
+        ctx.beginPath();ctx.moveTo(h,6);ctx.lineTo(s-6,h);ctx.lineTo(h,s-6);ctx.lineTo(6,h);ctx.closePath();ctx.fill();ctx.stroke();break;
+    }
+  }
+}
+
+function poly(ctx,cx,cy,n,r){
+  ctx.beginPath();
+  for(let i=0;i<n;i++){const a=i*2*Math.PI/n-Math.PI/2;(i===0?ctx.moveTo:ctx.lineTo).call(ctx,cx+r*Math.cos(a),cy+r*Math.sin(a));}
+  ctx.closePath();ctx.fill();ctx.stroke();
+}
+function star(ctx,cx,cy,n,or,ir){
+  ctx.beginPath();
+  for(let i=0;i<2*n;i++){const r2=i%2===0?or:ir;const a=i*Math.PI/n-Math.PI/2;(i===0?ctx.moveTo:ctx.lineTo).call(ctx,cx+r2*Math.cos(a),cy+r2*Math.sin(a));}
+  ctx.closePath();ctx.fill();ctx.stroke();
+}
+
+// ─── DRAG ────────────────────────────────────────────────
+function startDrag(id, cx, cy){
+  const el=document.getElementById('hobj_'+id); if(!el) return;
+  const obj=S.objects.find(o=>o.id===id); if(!obj) return;
+  selectObj(id);
+  const r=el.getBoundingClientRect();
+  S.dragId=id; S.dragOx=cx-r.left; S.dragOy=cy-r.top;
+
+  const onMove=(e)=>{
+    const x=(e.touches?e.touches[0].clientX:e.clientX)-S.dragOx;
+    const y=(e.touches?e.touches[0].clientY:e.clientY)-S.dragOy;
+    trail(e.touches?e.touches[0].clientX:e.clientX, e.touches?e.touches[0].clientY:e.clientY);
+    obj.x=x; obj.y=y;
+    el.style.left=x+'px'; el.style.top=y+'px';
+  };
+  const onEnd=()=>{
+    S.dragId=null;
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onEnd);
+    document.removeEventListener('touchmove',onMove);
+    document.removeEventListener('touchend',onEnd);
+  };
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onEnd);
+  document.addEventListener('touchmove',onMove,{passive:true});
+  document.addEventListener('touchend',onEnd);
+}
+
+// Pinch to scale
+let pinchIds=[];
+document.getElementById('scene').addEventListener('touchstart',(e)=>{
+  if(e.touches.length===2) S.pinchDist=pinchDist(e);
+},{passive:true});
+document.getElementById('scene').addEventListener('touchmove',(e)=>{
+  if(e.touches.length===2&&S.selected){
+    const d=pinchDist(e); const r=d/S.pinchDist;
+    if(Math.abs(r-1)>.025){ scaleObj(r); S.pinchDist=d; }
+  }
+},{passive:true});
+function pinchDist(e){
+  return Math.hypot(e.touches[1].clientX-e.touches[0].clientX, e.touches[1].clientY-e.touches[0].clientY);
+}
+
+// Tap on scene bg = deselect
+document.getElementById('scene').addEventListener('click',(e)=>{
+  if(e.target===document.getElementById('scene')||e.target.classList.contains('holo-grid')||e.target===document.getElementById('rearVideo')){
+    deselect(); spawnRipple(e.clientX,e.clientY,false);
+  }
+});
+
+// ─── SELECT / ACTIONS ────────────────────────────────────
+function selectObj(id){
+  deselect();
+  S.selected=id;
+  const el=document.getElementById('hobj_'+id); if(el) el.classList.add('selected');
+  positionQuickActions(el);
+  document.getElementById('quickActions').classList.add('visible');
+}
+function deselect(){
+  S.selected=null;
+  document.querySelectorAll('.hobj').forEach(e=>e.classList.remove('selected'));
+  document.getElementById('quickActions').classList.remove('visible');
+}
+function positionQuickActions(el){
+  if(!el) return;
+  const r=el.getBoundingClientRect();
+  const sceneR=document.getElementById('scene').getBoundingClientRect();
+  const qa=document.getElementById('quickActions');
+  let left=r.right-sceneR.left+8;
+  if(left+100>sceneR.width) left=r.left-sceneR.left-120;
+  qa.style.left=Math.max(4,left)+'px';
+  qa.style.top=Math.max(8,r.top-sceneR.top)+'px';
+}
+
+function scaleObj(f){
+  if(!S.selected) return;
+  const obj=S.objects.find(o=>o.id===S.selected); if(!obj) return;
+  obj.scale=Math.min(4,Math.max(.2,obj.scale*f));
+  const el=document.getElementById('hobj_'+obj.id);
+  if(el){ el.style.transform=`scale(${obj.scale}) rotate(${obj.rotation}deg)`; el.style.transition='transform .2s'; }
+  toast('SCALE: '+(obj.scale*100).toFixed(0)+'%');
+}
+function rotateObj(deg){
+  if(!S.selected) return;
+  const obj=S.objects.find(o=>o.id===S.selected); if(!obj) return;
+  obj.rotation=(obj.rotation+deg)%360;
+  const el=document.getElementById('hobj_'+obj.id);
+  if(el) el.style.transform=`scale(${obj.scale}) rotate(${obj.rotation}deg)`;
+  toast('ROTATE: '+obj.rotation+'°');
+}
+function cloneObj(){
+  if(!S.selected) return;
+  const orig=S.objects.find(o=>o.id===S.selected); if(!orig) return;
+  const clone={...orig, id:S.nextId++, x:orig.x+30, y:orig.y+30};
+  S.objects.push(clone); buildObjEl(clone); updateCount(); toast('CLONED');
+}
+function deleteObj(){
+  if(!S.selected) return;
+  const el=document.getElementById('hobj_'+S.selected);
+  if(el){ el.style.transition='all .3s'; el.style.opacity='0'; el.style.transform='scale(0)'; setTimeout(()=>el.remove(),320); }
+  S.objects=S.objects.filter(o=>o.id!==S.selected);
+  S.selected=null;
+  document.getElementById('quickActions').classList.remove('visible');
+  updateCount(); toast('DELETED');
+}
+function clearAll(){
+  document.getElementById('objectsLayer').innerHTML='';
+  S.objects=[]; S.selected=null;
+  document.getElementById('quickActions').classList.remove('visible');
+  updateCount(); toast('SCENE CLEARED');
+}
+
+// ─── IMPORT ──────────────────────────────────────────────
+function importFile(e, kind){
+  const f=e.target.files[0]; if(!f) return;
+  closeModal('importModal');
+  const scene=document.getElementById('scene').getBoundingClientRect();
+  const cx=scene.width/2-40, cy=scene.height/2-60;
+
+  if(kind==='3d'){
+    spawn3D(S3[Math.floor(Math.random()*S3.length)], cx, cy);
+    toast('3D: '+f.name.slice(0,14).toUpperCase());
+  } else if(kind==='img'){
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const obj=newObj('IMAGE',f.name.slice(0,10).toUpperCase(),cx,cy,80,true);
+      obj.imgSrc=ev.target.result;
+      S.objects.push(obj);
+      // build with actual image
+      const el=document.createElement('div');
+      el.className='hobj'; el.id='hobj_'+obj.id;
+      el.style.cssText=`left:${obj.x}px;top:${obj.y}px;z-index:${obj.id}`;
+      const inner=document.createElement('div'); inner.className='hobj-inner';
+      const img=document.createElement('img');
+      img.src=ev.target.result;
+      img.style.cssText='width:80px;height:80px;object-fit:contain;display:block;border-radius:4px;filter:hue-rotate(180deg) saturate(1.3)';
+      inner.appendChild(img);
+      const lbl=document.createElement('div'); lbl.className='obj-name'; lbl.textContent=obj.name;
+      inner.appendChild(lbl);
+      ['tl','tr','bl','br'].forEach(p=>{const d=document.createElement('div');d.className='corner '+p;inner.appendChild(d);});
+      el.appendChild(inner);
+      document.getElementById('objectsLayer').appendChild(el);
+      el.style.opacity='0'; el.style.transition='all .4s'; requestAnimationFrame(()=>el.style.opacity='1');
+      attachObjEvents(el, obj);
+      updateCount(); toast('IMAGE IMPORTED');
+    };
+    reader.readAsDataURL(f);
+  } else {
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const lines=ev.target.result.split('\n').slice(0,4).join(' | ').slice(0,50);
+      const obj=newObj('DATA',f.name.slice(0,10).toUpperCase(),cx,cy,80,true);
+      obj.text=lines||'DATA';
+      S.objects.push(obj); buildObjEl(obj); updateCount(); toast('DATA IMPORTED');
+    };
+    reader.readAsText(f);
+  }
+  e.target.value='';
+}
+
+function attachObjEvents(el, obj){
+  let tapTime=0;
+  function onDown(e){
+    e.stopPropagation();
+    const now=Date.now();
+    const cx=e.touches?e.touches[0].clientX:e.clientX;
+    const cy=e.touches?e.touches[0].clientY:e.clientY;
+    if(now-tapTime<350){ selectObj(obj.id); spawnRipple(cx,cy,true); tapTime=0; return; }
+    tapTime=now;
+    if(S.mode==='MOVE'||S.mode==='INSPECT') startDrag(obj.id,cx,cy);
+  }
+  el.addEventListener('touchstart',onDown,{passive:false});
+  el.addEventListener('mousedown',onDown);
+}
+
+// ─── DEMO OBJECTS ────────────────────────────────────────
+function spawnDemoObjects(){
+  setTimeout(()=>{ spawn3D('CUBE',60,100); },500);
+  setTimeout(()=>{ spawn2D('HEXAGON',220,160); },800);
+  setTimeout(()=>{ spawn3D('DIAMOND',null,null); },1100);
+}
+
+// ─── TOGGLE FRONT CAM ────────────────────────────────────
+function toggleFrontExpand(){
+  S.frontExpanded=!S.frontExpanded;
+  document.getElementById('frontWrap').classList.toggle('expanded',S.frontExpanded);
+  if(S.frontExpanded) resizeHandCanvas();
+}
+
+// ─── MODALS ──────────────────────────────────────────────
+function openModal(id){ document.getElementById(id).classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+// ─── EFFECTS ─────────────────────────────────────────────
+function spawnRipple(x,y,sel){
+  const r=document.createElement('div'); r.className='ripple';
+  r.style.cssText=`left:${x}px;top:${y}px;border-color:${sel?'rgba(0,255,200,.9)':'rgba(0,229,255,.5)'}`;
+  document.getElementById('scene').appendChild(r);
+  setTimeout(()=>r.remove(),800);
+}
+function trail(x,y){
+  const d=document.createElement('div'); d.className='gtrail';
+  d.style.left=x+'px'; d.style.top=y+'px';
+  document.getElementById('scene').appendChild(d);
+  setTimeout(()=>d.remove(),600);
+}
+
+let toastT=null;
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),2200);
+}
+
+function updateCount(){ document.getElementById('objCount').textContent=S.objects.length; }
+
+// Resize
+window.addEventListener('resize',()=>{ if(handCanvas) resizeHandCanvas(); });
+</script>
+</body>
+</html>
